@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Cenário Animado — Seleção de Personagens</title>
+<style>
+  :root{
+    --sky1:#cfeeff; --sky2:#e8f9f1;
+    --hill-a:#d9f3bf; --hill-b:#c9eeab; --hill-c:#b9e997; --hill-d:#8fcd6b;
+    --text:#2f746b;
+    --primary:#7BC4B8;
+    --secondary:#FFD93D;
+    --accent:#FFB6D9;
+    --dark:#2d4a3e;
+  }
+
+  html,body{height:100%;margin:0;font-family:'Comic Sans MS', 'Chalkboard SE', 'Segoe UI', Arial, sans-serif;background:linear-gradient(to bottom,var(--sky1),var(--sky2));}
+  #app{width:100%;height:100vh;overflow:hidden;position:relative}
+
+  /* --- 1. NOVO DESIGN DE SELEÇÃO DE PERSONAGEM (GRID) --- */
+  #charSelect{position:fixed;inset:0;background:linear-gradient(135deg,#2c5f6f,#4a8b9e);display:flex;align-items:center;justify-content:center;z-index:10000;flex-direction:column;padding:20px;box-sizing:border-box}
+  #charSelect h1{color:white;font-size:42px;margin-bottom:30px;text-shadow:0 4px 12px rgba(0,0,0,0.3);font-weight:700;letter-spacing:1px}
+
+  #charGrid{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 20px;
+    max-width: 900px;
+    width: 90%;
+    margin-bottom: 40px;
+  }
+  .char-card{
+    background:rgba(255,255,255,0.95);
+    border-radius:18px;
+    cursor:pointer;
+    transition:all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    box-shadow:0 8px 20px rgba(0,0,0,0.1);
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding: 15px;
+    text-align: center;
+    border: 3px solid transparent;
+  }
+  .char-card:hover{transform:translateY(-5px);box-shadow:0 12px 25px rgba(0,0,0,0.15)}
+  .char-card.selected{
+    transform:scale(1.05);
+    border-color:var(--accent);
+    box-shadow:0 18px 40px rgba(255,182,217,0.5);
+  }
+  .char-image svg{width:100%; height: auto; max-width: 100px; margin-bottom: 10px;}
+  .char-card .name{font-size:20px;font-weight:700;color:var(--dark);margin-bottom:5px}
+  .char-card .description{font-size:13px;color:#666;line-height:1.4; opacity: 0.8;}
+  
+  #startBtn{margin-top:0;padding:14px 40px;font-size:20px;font-weight:700;background:var(--primary);color:white;border:none;border-radius:999px;cursor:pointer;transition:all 0.2s;box-shadow:0 6px 18px rgba(0,0,0,0.2);animation:float 3s ease-in-out infinite}
+  #startBtn:hover{background:#66B39F;transform:scale(1.05);box-shadow:0 8px 24px rgba(0,0,0,0.3)}
+  #startBtn:disabled{opacity:0.5;cursor:not-allowed;animation:none}
+  @keyframes float{0%{transform:translateY(0px)}50%{transform:translateY(-10px)}100%{transform:translateY(0px)}}
+
+  /* HUD */
+  #hud{position:absolute;left:12px;top:12px;z-index:120;color:var(--text);font-weight:700;background:rgba(255,255,255,0.85);padding:8px 12px;border-radius:999px;box-shadow:0 6px 18px rgba(0,0,0,0.06)}
+  #instructions{position:absolute;right:12px;top:12px;z-index:120;background:rgba(255,255,255,0.9);padding:8px 12px;border-radius:999px;font-size:13px}
+
+  /* viewport & layers */
+  #viewport{position:absolute;inset:0;overflow:hidden;pointer-events:auto}
+  .parallax-layer{position:absolute;left:0;top:0;height:100%;width:100%;pointer-events:none;will-change:transform}
+  .parallax-layer svg{position:absolute;left:0;bottom:0;height:100%;width:6000px;display:block}
+
+  /* z-order */
+  .mountains{z-index:5}
+  .hills-back{z-index:8}
+  .hills-mid{z-index:12}
+  .hills-front{z-index:16}
+  .hills-very{z-index:18}
+  .skyobjs{z-index:20}
+  .trees{z-index:30}
+  .flowers{z-index:40}
+  #playerWrap{z-index:60;pointer-events:none}
+
+  /* clouds, trees, flowers visuals minimal (JS creates nodes) */
+  .cloud{position:absolute;opacity:0.85}
+  .tree{position:absolute;bottom:0}
+  .flower{position:absolute;bottom:6px;border-radius:50%}
+
+  /* character */
+  #playerWrap{position:absolute;left:50%;bottom:92px;transform:translateX(-50%);width:120px;height:140px}
+  .chibi{position:relative;width:100%;height:100%}
+  .chibi .body{position:absolute;left:50%;transform:translateX(-50%);top:10px;width:70px;height:80px;border-radius:36px}
+  .legs{position:absolute;left:50%;transform:translateX(-50%);bottom:6px;width:60px;height:48px}
+  .leg{position:absolute;bottom:0;width:12px;height:36px;border-radius:6px;transform-origin:top center}
+  .leg.left{left:12px}.leg.right{right:12px}
+  .walking .leg.left{animation:leftStep 360ms linear infinite}.walking .leg.right{animation:rightStep 360ms linear infinite}
+  @keyframes leftStep{0%{transform:rotate(6deg)}50%{transform:rotate(-22deg)}100%{transform:rotate(6deg)}}
+  @keyframes rightStep{0%{transform:rotate(-22deg)}50%{transform:rotate(6deg)}100%{transform:rotate(-22deg)}}
+
+  /* EYES: eyeball + pupil */
+  .eye {
+    position: absolute;
+    top: 26px;
+    width: 14px;
+    height: 16px;
+    background: #fff;
+    border-radius: 50%;
+    box-shadow: inset 0 -2px 0 rgba(0,0,0,0.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    transform-origin: center;
+    transition: transform 80ms linear;
+    pointer-events: none;
+  }
+  .eye.left { left: 18px; }
+  .eye.right { right: 18px; }
+
+  .pupil {
+    width: 6px;
+    height: 6px;
+    background: #22333b;
+    border-radius: 50%;
+    transform: translate(0,0);
+    transition: transform 120ms linear;
+    will-change: transform;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.12) inset;
+  }
+
+  /* blink */
+  .eye.blink { animation: blinkAnim 160ms steps(1, end) forwards; }
+  @keyframes blinkAnim {
+    0% { transform: scaleY(1); }
+    50% { transform: scaleY(0.12); }
+    100% { transform: scaleY(1); }
+  }
+
+  /* flying butterfly */
+  .flying-butterfly{position:fixed;left:-12vw;width:40px;pointer-events:auto;cursor:pointer;z-index:230;transition:transform .15s}
+  .flying-butterfly:hover{transform:scale(1.15)}
+  @keyframes crossScreen{0%{left:-12vw}50%{left:50vw;transform:translateY(-6vh)}100%{left:112vw}}
+
+  /* --- 2. NOVO ESTILO DO OVERLAY (JOGOS) --- */
+  #overlay{position:fixed;inset:0;background:rgba(0,0,0,0.55);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:9999}
+  #overlayCard{
+    background:white;
+    padding:30px;
+    border-radius:12px;
+    max-width:480px;
+    text-align:center;
+    color:var(--dark);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  }
+  #overlayCard h2 {
+    margin-bottom: 20px;
+    color: var(--primary);
+    font-size: 28px;
+  }
+  #gameList {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .game-link {
+    text-decoration: none;
+    display: block;
+    padding: 12px 20px;
+    background: var(--secondary);
+    color: var(--dark);
+    font-weight: 700;
+    border-radius: 8px;
+    transition: background 0.2s, transform 0.1s;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  }
+  .game-link:hover {
+    background: #f0c930;
+    transform: translateY(-2px);
+  }
+  #overlayClose{margin-top:10px;padding:8px 14px;background:var(--text);color:white;border-radius:8px;border:0;cursor:pointer;font-weight: bold;}
+  #overlayClose:hover{background: #235850;}
+
+  /* responsive tweaks */
+  @media (max-width:700px){ 
+    .flying-butterfly{width:30px} 
+    #playerWrap{bottom:72px;width:88px;height:110px} 
+    .parallax-layer svg{width:3000px} 
+    #charSelect h1{font-size:28px} 
+    #charGrid{grid-template-columns: repeat(2, 1fr);}
+    .char-card{padding: 10px;}
+    .char-card .name{font-size:16px;}
+    .char-card .description{display: none;} /* Hide description on small screens */
+    #startBtn{padding:12px 30px;font-size:18px}
+  }
+</style>
+</head>
+<body>
+
+<div id="charSelect">
+  <h1>Escolha seu personagem!</h1>
+  <div id="charGrid">
+      </div>
+  <button id="startBtn" disabled>Começar Aventura</button>
+</div>
+
+<div id="overlay" aria-hidden="true">
+  <div id="overlayCard" role="dialog" aria-modal="true">
+    <h2>🎉 Nossos Jogos de LIBRAS! 🎉</h2>
+    <div id="gameList">
+      <a href="./memoria.html" class="game-link">Jogo da Memória</a>
+      <a href="./jogoCorrespondencia.html" class="game-link">Jogo de Correspondência</a>
+      <a href="./quizLibras.html" class="game-link">Quiz de LIBRAS</a>
+      <a href="./jogosInicial.html" class="game-link">Voltar para a Tela Inicial dos Jogos</a>
+    </div>
+    <button id="overlayClose">Continuar Explorando</button>
+  </div>
+</div>
+
+<div id="app" style="display:none">
+  <div id="hud">Passos: <span id="counter">0</span></div>
+  <div id="instructions">Use ← → para mover — ENTER pula</div>
+
+  <div id="viewport">
+
+        <div class="parallax-layer mountains" data-speed="0.18">
+      <svg viewBox="0 0 1200 300" preserveAspectRatio="xMinYMax slice"><defs><linearGradient id="mg1" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ccecf8"/><stop offset="1" stop-color="#9ecde6"/></linearGradient></defs><path d="M0 220 L180 80 L320 190 L460 70 L620 220 L780 120 L900 220 L1060 90 L1200 220 L1200 300 L0 300 Z" fill="url(#mg1)"/></svg>
+    </div>
+
+        <div class="parallax-layer hills-back" data-speed="0.30" id="h1">
+      <svg viewBox="0 0 1200 300" preserveAspectRatio="xMinYMax slice">
+        <path d="M0 210 C200 150 380 160 540 190 C700 220 880 210 1200 190 L1200 300 L0 300 Z" fill="var(--hill-a)" />
+      </svg>
+    </div>
+
+    <div class="parallax-layer hills-mid" data-speed="0.42" id="h2">
+      <svg viewBox="0 0 1200 300" preserveAspectRatio="xMinYMax slice">
+        <path d="M0 240 C180 180 360 185 540 220 C720 255 900 250 1200 230 L1200 300 L0 300 Z" fill="var(--hill-b)" />
+      </svg>
+    </div>
+
+    <div class="parallax-layer hills-front" data-speed="0.55" id="h3">
+      <svg viewBox="0 0 1200 300" preserveAspectRatio="xMinYMax slice">
+        <path d="M0 260 C160 210 340 225 520 255 C700 285 900 280 1200 255 L1200 300 L0 300 Z" fill="var(--hill-c)" />
+      </svg>
+    </div>
+
+    <div class="parallax-layer hills-very" data-speed="0.72" id="h4">
+      <svg viewBox="0 0 1200 300" preserveAspectRatio="xMinYMax slice">
+        <path d="M0 280 C200 240 420 260 630 280 C840 300 1050 290 1200 270 L1200 300 L0 300 Z" fill="var(--hill-d)" />
+      </svg>
+    </div>
+
+    <div id="skyObjs" class="parallax-layer skyobjs" data-speed="0.62"></div>
+    <div id="trees" class="parallax-layer trees" data-speed="0.85"></div>
+    <div id="flowers" class="parallax-layer flowers" data-speed="1"></div>
+
+        <div id="playerWrap">
+      <div class="chibi" id="chibiRoot">
+        <div class="body">
+          <div class="eye left"><div class="pupil"></div></div>
+          <div class="eye right"><div class="pupil"></div></div>
+        </div>
+        <div class="legs"><div class="leg left"></div><div class="leg right"></div></div>
+      </div>
+    </div>
+
+  </div></div><script>
+/* ================= globals ================= */
+const stageWidth = 6000;
+const layers = Array.from(document.querySelectorAll('.parallax-layer'));
+const counterEl = document.getElementById('counter');
+const chibiRoot = document.getElementById('chibiRoot');
+
+let cameraX = 0, steps = 0;
+let movingLeft = false, movingRight = false;
+let rafId = null;
+let selectedChar = null;
+
+// Character data with names and descriptions
+const characters = [
+  { 
+    id: 0,
+    name: "Verde",
+    description: "Amigo da natureza! Gosta de explorar florestas e brincar com os animais.",
+    body: 'linear-gradient(180deg,#7BC4B8,#66B39F)', 
+    legs: '#2d6b5f', 
+    hasAntenna: true,
+    image: `<svg width="120" height="120" viewBox="0 0 80 90">
+      <ellipse cx="40" cy="65" rx="28" ry="12" fill="#2d4a3e" opacity="0.3"/>
+      <rect x="36" y="50" width="8" height="30" rx="4" fill="#2d6b5f"/>
+      <circle cx="40" cy="35" r="25" fill="#7BC4B8"/>
+      <circle cx="30" cy="30" r="5" fill="white"/>
+      <circle cx="50" cy="30" r="5" fill="white"/>
+      <circle cx="31" cy="30" r="2.5" fill="#22333b"/>
+      <circle cx="51" cy="30" r="2.5" fill="#22333b"/>
+      <line x1="32" y1="15" x2="28" y2="8" stroke="#4a8b7e" stroke-width="4" stroke-linecap="round"/>
+      <line x1="40" y1="12" x2="40" y2="4" stroke="#4a8b7e" stroke-width="4" stroke-linecap="round"/>
+      <line x1="48" y1="15" x2="52" y2="8" stroke="#4a8b7e" stroke-width="4" stroke-linecap="round"/>
+    </svg>`
+  },
+  { 
+    id: 1,
+    name: "Amarelo",
+    description: "Sol radiante! Adora dias ensolarados e fazer amigos por onde passa.",
+    body: 'linear-gradient(180deg,#FFD93D,#e6c236)', 
+    legs: '#d4a91e', 
+    hasAntenna: false,
+    image: `<svg width="120" height="120" viewBox="0 0 80 90">
+      <ellipse cx="40" cy="65" rx="28" ry="12" fill="#b8930f" opacity="0.3"/>
+      <rect x="36" y="50" width="8" height="30" rx="4" fill="#d4a91e"/>
+      <circle cx="40" cy="35" r="25" fill="#FFD93D"/>
+      <circle cx="30" cy="30" r="5" fill="white"/>
+      <circle cx="50" cy="30" r="5" fill="white"/>
+      <circle cx="31" cy="30" r="2.5" fill="#22333b"/>
+      <circle cx="51" cy="30" r="2.5" fill="#22333b"/>
+      <path d="M 25 42 Q 40 50 55 42" stroke="#22333b" stroke-width="2" fill="none" stroke-linecap="round"/>
+    </svg>`
+  },
+  { 
+    id: 2,
+    name: "Rosa",
+    description: "Docinho de morango! Gosta de flores, doces e abraços quentinhos.",
+    body: 'linear-gradient(180deg,#FFB6D9,#e89fc2)', 
+    legs: '#a86b82', 
+    hasAntenna: false,
+    image: `<svg width="120" height="120" viewBox="0 0 80 90">
+      <ellipse cx="40" cy="65" rx="28" ry="12" fill="#8b5a6b" opacity="0.3"/>
+      <rect x="36" y="50" width="8" height="30" rx="4" fill="#a86b82"/>
+      <ellipse cx="40" cy="35" rx="26" ry="28" fill="#FFB6D9"/>
+      <circle cx="30" cy="32" r="4" fill="white"/>
+      <circle cx="50" cy="32" r="4" fill="white"/>
+      <circle cx="31" cy="32" r="2" fill="#22333b"/>
+      <circle cx="51" cy="32" r="2" fill="#22333b"/>
+      <ellipse cx="27" cy="30" rx="8" ry="10" fill="#ff9ec5" opacity="0.6"/>
+      <ellipse cx="53" cy="30" rx="8" ry="10" fill="#ff9ec5" opacity="0.6"/>
+    </svg>`
+  },
+  { 
+    id: 3,
+    name: "Branco",
+    description: "Nuvem fofinha! Adora voar alto e espalhar alegria por todos os lugares.",
+    body: 'linear-gradient(180deg,#E8E8E8,#d0d0d0)', 
+    legs: '#8a8a8a', 
+    hasAntenna: false,
+    image: `<svg width="120" height="120" viewBox="0 0 80 90">
+      <ellipse cx="40" cy="65" rx="28" ry="12" fill="#6b6b6b" opacity="0.3"/>
+      <rect x="36" y="50" width="8" height="30" rx="4" fill="#8a8a8a"/>
+      <ellipse cx="40" cy="38" rx="24" ry="26" fill="#E8E8E8"/>
+      <circle cx="30" cy="35" r="5" fill="white"/>
+      <circle cx="50" cy="35" r="5" fill="white"/>
+      <circle cx="31" cy="35" r="2.5" fill="#22333b"/>
+      <circle cx="51" cy="35" r="2.5" fill="#22333b"/>
+      <ellipse cx="40" cy="30" rx="18" ry="20" fill="white" opacity="0.7"/>
+    </svg>`
+  },
+  { 
+    id: 4,
+    name: "Azul",
+    description: "Mar azulado! Gosta de nadar, mergulhar e descobrir tesouros no fundo do mar.",
+    body: 'linear-gradient(180deg,#6FB2D2,#5a9ec4)', 
+    legs: '#5a8bb8', 
+    hasAntenna: false,
+    image: `<svg width="120" height="120" viewBox="0 0 80 90">
+      <ellipse cx="40" cy="65" rx="28" ry="12" fill="#4a6b8b" opacity="0.3"/>
+      <rect x="36" y="50" width="8" height="30" rx="4" fill="#5a8bb8"/>
+      <rect x="35" y="28" width="30" height="32" rx="8" fill="#6FB2D2"/>
+      <circle cx="44" cy="38" r="4" fill="white"/>
+      <circle cx="56" cy="38" r="4" fill="white"/>
+      <circle cx="45" cy="38" r="2" fill="#22333b"/>
+      <circle cx="57" cy="38" r="2" fill="#22333b"/>
+      <rect x="35" y="20" width="10" height="12" rx="3" fill="#5a9ec4"/>
+      <rect x="55" y="20" width="10" height="12" rx="3" fill="#5a9ec4"/>
+    </svg>`
+  },
+  { 
+    id: 5,
+    name: "Laranja",
+    description: "Frutinha saborosa! Gosta de correr, pular e se divertir o dia inteiro!",
+    body: 'linear-gradient(180deg,#FFB86F,#e6a563)', 
+    legs: '#d49a1e', 
+    hasAntenna: false,
+    image: `<svg width="120" height="120" viewBox="0 0 80 90">
+      <ellipse cx="40" cy="65" rx="28" ry="12" fill="#b8830f" opacity="0.3"/>
+      <rect x="36" y="50" width="8" height="30" rx="4" fill="#d49a1e"/>
+      <circle cx="40" cy="32" r="20" fill="#FFB86F"/>
+      <path d="M 28 22 Q 32 18 36 22" fill="#cc8844"/>
+      <path d="M 44 22 Q 48 18 52 22" fill="#cc8844"/>
+      <circle cx="32" cy="32" r="4" fill="white"/>
+      <circle cx="48" cy="32" r="4" fill="white"/>
+      <circle cx="33" cy="32" r="2" fill="#22333b"/>
+      <circle cx="49" cy="32" r="2" fill="#22333b"/>
+      <ellipse cx="40" cy="42" rx="6" ry="4" fill="#22333b" opacity="0.2"/>
+    </svg>`
+  },
+  { 
+    id: 6,
+    name: "Turquesa",
+    description: "Oceano mágico! Gosta de aventuras, descobertas e brincadeiras na praia.",
+    body: 'linear-gradient(180deg,#6BCB9B,#5ab88a)', 
+    legs: '#5a8b7e', 
+    hasAntenna: false,
+    image: `<svg width="120" height="120" viewBox="0 0 80 90">
+      <ellipse cx="40" cy="65" rx="28" ry="12" fill="#4a6b5f" opacity="0.3"/>
+      <rect x="36" y="50" width="8" height="30" rx="4" fill="#5a8b7e"/>
+      <ellipse cx="40" cy="35" rx="25" ry="28" fill="#6BCB9B"/>
+      <circle cx="32" cy="32" r="5" fill="white"/>
+      <circle cx="48" cy="32" r="5" fill="white"/>
+      <circle cx="33" cy="32" r="2.5" fill="#22333b"/>
+      <circle cx="49" cy="32" r="2.5" fill="#22333b"/>
+      <path d="M 30 42 Q 40 46 50 42" stroke="#22333b" stroke-width="1.5" fill="none"/>
+    </svg>`
+  }
+];
+
+function rand(min,max){ return min + Math.random()*(max-min); }
+
+/* ====== CHARACTER SELECTION (NOVO) ====== */
+const charSelect = document.getElementById('charSelect');
+const startBtn = document.getElementById('startBtn');
+const charGrid = document.getElementById('charGrid');
+
+
+// Create grid cards
+function createCharacterGrid() {
+  characters.forEach((char, index) => {
+    const card = document.createElement('div');
+    card.className = 'char-card';
+    card.dataset.index = index;
+    
+    card.innerHTML = `
+      <div class="char-image">${char.image}</div>
+      <div class="name">${char.name}</div>
+      <div class="description">${char.description}</div>
+    `;
+    
+    card.addEventListener('click', () => {
+      // Remove selected class from all cards
+      document.querySelectorAll('.char-card').forEach(c => c.classList.remove('selected'));
+      // Add selected class to this card
+      card.classList.add('selected');
+      selectedChar = index;
+      startBtn.disabled = false;
+    });
+    
+    charGrid.appendChild(card);
+  });
+}
+
+// Initialize character grid
+createCharacterGrid();
+
+// Start game button
+startBtn.addEventListener('click', () => {
+  if (selectedChar === null) return;
+  applyCharacter(selectedChar);
+  charSelect.style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+});
+
+function applyCharacter(index) {
+  const char = characters[index];
+  const body = chibiRoot.querySelector('.body');
+  const legs = chibiRoot.querySelectorAll('.leg');
+  
+  body.style.background = char.body;
+  legs.forEach(leg => leg.style.background = char.legs);
+  
+  // Add antenna if character has it
+  if (char.hasAntenna && !body.querySelector('.antenna-group')) {
+    const antennaGroup = document.createElement('div');
+    antennaGroup.className = 'antenna-group';
+    antennaGroup.style.cssText = 'position:absolute;top:-12px;left:50%;transform:translateX(-50%);width:60px;height:20px;pointer-events:none';
+    
+    for(let i = 0; i < 3; i++) {
+      const antenna = document.createElement('div');
+      antenna.style.cssText = `position:absolute;top:0;width:3px;height:14px;background:${char.legs};border-radius:2px`;
+      if(i === 0) antenna.style.left = '8px';
+      if(i === 1) antenna.style.left = '50%;transform:translateX(-50%)';
+      if(i === 2) antenna.style.right = '8px';
+      
+      const tip = document.createElement('div');
+      tip.style.cssText = `position:absolute;top:-4px;left:50%;transform:translateX(-50%);width:6px;height:6px;background:${char.body};border-radius:50%`;
+      antenna.appendChild(tip);
+      antennaGroup.appendChild(antenna);
+    }
+    body.appendChild(antennaGroup);
+  }
+}
+
+
+/* ====== parallax render ====== */
+function renderParallax(){
+ layers.forEach(layer=>{
+ const speed = parseFloat(layer.dataset.speed) || 0;
+ const tx = -cameraX * speed;
+ layer.style.transform = `translate3d(${tx}px,0,0)`;
+});
+}
+
+/* ====== movement ====== */
+function setWalking(on){ chibiRoot.classList.toggle('walking', !!on); }
+
+function step(dir){
+ const vw = window.innerWidth;
+ cameraX += dir * 12;
+ cameraX = Math.max(0, Math.min(cameraX, stageWidth - vw));
+ renderParallax();
+ steps++;
+ counterEl.textContent = steps;
+}
+
+function loop(){
+ if(movingRight) step(+1);
+if(movingLeft) step(-1);
+ rafId = requestAnimationFrame(loop);
+}
+
+function startRAF(){ if(!rafId) rafId = requestAnimationFrame(loop); }
+function stopRAF(){ if(rafId){ cancelAnimationFrame(rafId); rafId = null; } }
+
+document.addEventListener('keydown', e=>{
+ if(e.repeat) return;
+ if(e.key==='ArrowRight'){ movingRight=true; setWalking(true); startRAF(); }
+ if(e.key==='ArrowLeft'){ movingLeft=true; setWalking(true); startRAF(); }
+ if(e.key==='Enter'){
+ chibiRoot.style.transition = 'transform 0.14s ease';
+ chibiRoot.style.transform = 'translateY(-14px)';
+ setTimeout(()=> chibiRoot.style.transform = '', 160);
+steps++; counterEl.textContent = steps;
+ }
+});
+document.addEventListener('keyup', e=>{
+ if(e.key==='ArrowRight'){ movingRight=false; }
+ if(e.key==='ArrowLeft'){ movingLeft=false; }
+ if(!movingLeft && !movingRight){ setWalking(false); stopRAF(); }
+});
+
+/* ====== static objects (clouds/trees/flowers) ====== */
+function populateStatics(){
+   const sky = document.getElementById('skyObjs');
+ const trees = document.getElementById('trees');
+ const flowers = document.getElementById('flowers');
+
+ for(let i=0;i<10;i++){
+ const c = document.createElement('div');
+ c.className = 'cloud';
+ c.style.left = rand(0,5600)+'px';
+ c.style.top = rand(20,160)+'px';
+ c.style.width = rand(120,260)+'px';
+ sky.appendChild(c);
+ }
+
+for(let i=0;i<28;i++){
+ const t = document.createElement('div');
+ t.className = 'tree';
+ t.style.left = rand(0,5800)+'px';
+ t.style.transform = `scale(${rand(0.7,1.1)})`;
+ trees.appendChild(t);
+ }
+
+ for(let i=0;i<80;i++){
+ const f = document.createElement('div');
+f.className = 'flower';
+f.style.left = rand(0,window.innerWidth)+'px';
+f.style.width = rand(6,12)+'px';
+f.style.height = rand(8,16)+'px'; f.style.background = `hsl(${Math.round(rand(0,360))} 75% 70%)`;
+flowers.appendChild(f);
+ }
+}
+
+/* ====== butterflies (fixed; clickable) ====== */
+function spawnButterflies(){
+for(let i=0;i<6;i++){
+ const b = document.createElement('img');
+ b.className = 'flying-butterfly';
+ b.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(
+`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><g transform='translate(12,12)'><ellipse rx='6' ry='8' fill='#ff8cc9' transform='translate(-5,0) rotate(-18)'/><ellipse rx='6' ry='8' fill='#ffd79c' transform='translate(5,0) rotate(18)'/><rect x='-1' y='-3' width='2' height='7' fill='#333' rx='1'/></g></svg>`
+);
+ b.style.top = rand(12,72) + 'vh';
+  const dur = rand(9,18);
+  b.style.animation = `crossScreen ${dur}s linear ${rand(-6,0)}s infinite`;
+  b.addEventListener('click', ()=> openOverlay());
+  document.body.appendChild(b); }
+}
+
+/* ====== overlay controls ====== */
+const overlay = document.getElementById('overlay');
+const overlayClose = document.getElementById('overlayClose');
+function openOverlay(){ overlay.style.display = 'flex'; overlay.setAttribute('aria-hidden','false'); }
+function closeOverlay(){ overlay.style.display = 'none'; overlay.setAttribute('aria-hidden','true'); }
+
+overlayClose.addEventListener('click', closeOverlay);
+overlay.addEventListener('click', (e)=> { if(e.target === overlay) closeOverlay(); });
+
+/* ====== EYES: pupil tracking + blink ====== */
+const eyes = Array.from(document.querySelectorAll('.eye'));
+function updatePupils(clientX, clientY){
+eyes.forEach(eye=>{
+const pupil = eye.querySelector('.pupil');
+const rect = eye.getBoundingClientRect();
+const cx = rect.left + rect.width/2;
+const cy = rect.top + rect.height/2;
+const dx = clientX - cx;
+const dy = clientY - cy;
+const max = 4;
+const angle = Math.atan2(dy, dx);
+const dist = Math.min(max, Math.hypot(dx,dy)/10);
+const tx = Math.cos(angle) * dist;
+const ty = Math.sin(angle) * dist;
+pupil.style.transform = `translate(${tx}px, ${ty}px)`;
+  });
+}
+
+window.addEventListener('mousemove', (e)=> updatePupils(e.clientX, e.clientY));
+
+window.addEventListener('touchmove', (e)=>{
+const t = e.touches[0];
+if(t) updatePupils(t.clientX, t.clientY);
+}, {passive:true});
+
+function blinkOnce(){
+const i = Math.floor(Math.random()*eyes.length);
+const eye = eyes[i];
+if(!eye) return;
+eye.classList.add('blink');
+setTimeout(()=> eye.classList.remove('blink'), 160);
+scheduleBlink();
+}
+function scheduleBlink(){
+   const next = 2000 + Math.random()*4000;
+setTimeout(blinkOnce, next);
+}
+scheduleBlink();
+
+/* ====== init ====== */
+populateStatics();
+spawnButterflies();
+renderParallax();
+</script>
+</body>
+</html>
